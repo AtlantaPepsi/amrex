@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <vector>
 #include <cstdlib>
 #include <memory>
 
@@ -68,6 +69,11 @@ public:
 
     static void setStreamIndex (const int idx) noexcept;
     static void resetStreamIndex () noexcept { setStreamIndex(-1); }
+
+#ifdef USE_ST
+    static MPI_Comm streamComm () noexcept { return mpix_comm_pool[0]; }
+#endif
+
 
 #ifdef AMREX_USE_GPU
     /** For Index, the null stream is -1, and the other streams are 0, 1, 2, ...  */
@@ -189,6 +195,11 @@ private:
 #ifdef AMREX_USE_DPCPP
     static AMREX_EXPORT std::unique_ptr<sycl::context> sycl_context;
     static AMREX_EXPORT std::unique_ptr<sycl::device>  sycl_device;
+#endif
+
+#ifdef USE_ST
+    static AMREX_EXPORT std::vector<MPI_Comm> mpix_comm_pool;
+    static AMREX_EXPORT std::vector<MPIX_Stream> mpix_stream_pool;
 #endif
 #endif
 };
