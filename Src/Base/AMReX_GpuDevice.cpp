@@ -84,6 +84,11 @@ std::unique_ptr<sycl::context> Device::sycl_context;
 std::unique_ptr<sycl::device>  Device::sycl_device;
 #endif
 
+#ifdef USE_ST
+std::vector<MPI_Comm> Device::mpix_comm_pool;
+std::vector<MPIX_Stream> Device::mpix_stream_pool;
+#endif
+
 namespace {
 
 #if defined(__CUDACC__)
@@ -363,6 +368,10 @@ Device::Finalize ()
 
     for (int i = 0; i < max_gpu_streams; ++i)
     {
+#ifdef USE_ST
+        MPI_Comm_free(mpix_comm_pool + i);
+        MPIX_Stream_free(mpix_stream_pool + i);
+#endif
         AMREX_HIP_OR_CUDA( AMREX_HIP_SAFE_CALL( hipStreamDestroy(gpu_stream_pool[i]));,
                           AMREX_CUDA_SAFE_CALL(cudaStreamDestroy(gpu_stream_pool[i])); );
     }
@@ -491,6 +500,30 @@ Device::initialize_gpu ()
 #endif
 
     gpu_stream.resize(OpenMP::get_max_threads(), gpu_default_stream);
+
+#ifdef USE_ST
+    mpix_comm_pool.resize(max_gpu_streams);
+    mpix_stream_pool.resize(max_gpu_streams);
+
+    MPI_Info info;
+    MPI_Info_create(&info);
+    MPI_Info_set(info, "type", "cudaStream_t");
+    
+    MPI_Comm base_comm = ParallelDescriptor::Communicator();
+    for (auto i : gpu_stream) {
+        MPIX_Stream mpich_stream;
+        MPI_Comm stream_comm;
+        MPIX_Info_set_hex(info, "value", &i, sizeof(cudaStream_t));
+        MPIX_Stream_create(info, &mpich_stream);
+        MPIX_Stream_comm_create(base_comm, mpich_stream, &stream_comm);
+
+        //add stream communicator into device obj 
+        mpix_comm_pool.push_back(stream_comm);
+        mpix_stream_pool.push_back(mpich_stream);
+    }
+
+    MPI_Info_free(&info);
+#endif
 
     ParmParse pp("device");
 
