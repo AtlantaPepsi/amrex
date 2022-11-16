@@ -373,8 +373,8 @@ Device::Finalize ()
     for (int i = 0; i < max_gpu_streams; ++i)
     {
 #ifdef USE_ST
-        MPI_Comm_free(mpix_comm_pool + i);
-        MPIX_Stream_free(mpix_stream_pool + i);
+        MPI_Comm_free(&mpix_comm_pool[i]);
+        MPIX_Stream_free(&mpix_stream_pool[i]);
 #endif
         AMREX_HIP_OR_CUDA( AMREX_HIP_SAFE_CALL( hipStreamDestroy(gpu_stream_pool[i]));,
                           AMREX_CUDA_SAFE_CALL(cudaStreamDestroy(gpu_stream_pool[i])); );
@@ -514,15 +514,12 @@ Device::initialize_gpu ()
     gpu_stream.resize(OpenMP::get_max_threads(), gpu_default_stream);
 
 #ifdef USE_ST
-    mpix_comm_pool.resize(max_gpu_streams);
-    mpix_stream_pool.resize(max_gpu_streams);
-
     MPI_Info info;
     MPI_Info_create(&info);
     MPI_Info_set(info, "type", "cudaStream_t");
     
     MPI_Comm base_comm = ParallelDescriptor::Communicator();
-    for (auto i : gpu_stream) {
+    for (auto i : gpu_stream_pool) {
         MPIX_Stream mpich_stream;
         MPI_Comm stream_comm;
         MPIX_Info_set_hex(info, "value", &i, sizeof(cudaStream_t));
