@@ -196,6 +196,12 @@ else
   USE_MPI := FALSE
 endif
 
+ifdef USE_ST
+  USE_ST := $(strip $(USE_ST))
+else
+  USE_ST := FALSE
+endif
+
 ifdef MPI_THREAD_MULTIPLE
   MPI_THREAD_MULTIPLE := $(strip $(MPI_THREAD_MULTIPLE))
   MPI_THREAD_MULTIPLE_UPDATE_SUFFIX ?= TRUE
@@ -644,6 +650,10 @@ endif
 
 ifeq ($(USE_MPI),TRUE)
     CPPFLAGS += -DBL_USE_MPI -DAMREX_USE_MPI
+    
+    ifeq ($(USE_ST),TRUE)
+        CPPFLAGS += -DUSE_ST
+    endif
 
     ifeq ($(MPI_THREAD_MULTIPLE),TRUE)
         ifeq ($(MPI_THREAD_MULTIPLE_UPDATE_SUFFIX),TRUE)
