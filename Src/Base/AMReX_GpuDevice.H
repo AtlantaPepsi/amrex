@@ -71,7 +71,9 @@ public:
     static void resetStreamIndex () noexcept { setStreamIndex(-1); }
 
 #ifdef USE_ST
-    static MPI_Comm streamComm () noexcept { return mpix_comm_pool[0]; }
+    //TODO: fix harcoding here
+    static MPI_Comm streamComm () noexcept { return mpix_comm_pool[1]; }
+    static cudaStream_t commStream () noexcept { return gpu_stream[1]; }
 #endif
 
 

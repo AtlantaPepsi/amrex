@@ -207,7 +207,7 @@ FabArray<FAB>::FillBoundary_finish (bool sync)
         int actual_n_rcvs = N_rcvs - std::count(fbd_.recv_data.begin(), fbd_.recv_data.end(), nullptr);
 
         if (actual_n_rcvs > 0) {
-            ParallelDescriptor::Waitall(fbd_.recv_reqs, fbd_.recv_stat);
+            ParallelDescriptor::Waitall(fbd_.recv_reqs, fbd_.recv_stat, sync);
 #ifdef AMREX_DEBUG
             if (!CheckRcvStats(fbd_.recv_stat, fbd_.recv_size, fbd_.tag))
             {
@@ -243,18 +243,27 @@ FabArray<FAB>::FillBoundary_finish (bool sync)
         }
 
         if (fbd_.the_recv_data)
-        {
-            amrex::The_FA_Arena()->free(fbd_.the_recv_data);
-            fbd_.the_recv_data = nullptr;
+        {   if (!sync)
+                AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::Device::commStream(),
+                                                     amrex_asyncarray_delete, fbd_.the_recv_data) );
+            else {
+                amrex::The_FA_Arena()->free(fbd_.the_recv_data);
+                fbd_.the_recv_data = nullptr;
+            }
         }
     }
 
     const int N_snds = TheFB->m_SndTags->size();
     if (N_snds > 0) {
         Vector<MPI_Status> stats(fbd_.send_reqs.size());
-        ParallelDescriptor::Waitall(fbd_.send_reqs, stats);
-        amrex::The_FA_Arena()->free(fbd_.the_send_data);
-        fbd_.the_send_data = nullptr;
+        ParallelDescriptor::Waitall(fbd_.send_reqs, stats, sync);
+        if (!sync)
+            AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::Device::commStream(),
+                                                 amrex_asyncarray_delete, fbd_.the_send_data) );
+        else {
+            amrex::The_FA_Arena()->free(fbd_.the_send_data);
+            fbd_.the_send_data = nullptr;
+        }
     }
 
 #ifdef USE_ST

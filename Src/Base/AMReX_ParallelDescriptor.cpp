@@ -1032,14 +1032,31 @@ Wait (MPI_Request& req, MPI_Status& status)
     BL_COMM_PROFILE_WAIT(BLProfiler::Wait, req, status, false);
 }
 
+namespace {
+#ifdef USE_ST
+    std::function<int(int, MPI_Request[], MPI_Status[])> mpi_wait
+        = MPIX_Waitall_enqueue;
+#else
+    std::function<int(int, MPI_Request[], MPI_Status[])> mpi_wait
+        = MPI_Waitall;
+#endif
+}
+
 void
 Waitall (Vector<MPI_Request>& reqs, Vector<MPI_Status>& status, bool sync)
 {
+#ifdef USE_ST
+    if(sync)
+        mpi_wait = MPI_Waitall;
+#else
+    amrex::ignore_unused(sync);
+#endif
+
     BL_ASSERT(status.size() >= reqs.size());
 
     BL_PROFILE_S("ParallelDescriptor::Waitall()");
     BL_COMM_PROFILE_WAITSOME(BLProfiler::Waitall, reqs, reqs.size(), status, true);
-    BL_MPI_REQUIRE( MPI_Waitall(reqs.size(),
+    BL_MPI_REQUIRE( mpi_wait(reqs.size(),
                                 reqs.dataPtr(),
                                 status.dataPtr()) );
     BL_COMM_PROFILE_WAITSOME(BLProfiler::Waitall, reqs, status.size(), status, false);
