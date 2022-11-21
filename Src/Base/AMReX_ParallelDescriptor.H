@@ -595,11 +595,11 @@ while ( false )
     inline int SeqNum () noexcept { return ParallelContext::get_inc_mpi_tag(); }
 
     template <class T> Message Asend(const T*, size_t n, int pid, int tag);
-    template <class T> Message Asend(const T*, size_t n, int pid, int tag, MPI_Comm comm);
+    template <class T> Message Asend(const T*, size_t n, int pid, int tag, MPI_Comm comm, bool sync = true);
     template <class T> Message Asend(const std::vector<T>& buf, int pid, int tag);
 
     template <class T> Message Arecv(T*, size_t n, int pid, int tag);
-    template <class T> Message Arecv(T*, size_t n, int pid, int tag, MPI_Comm comm);
+    template <class T> Message Arecv(T*, size_t n, int pid, int tag, MPI_Comm comm, bool sync = true);
     template <class T> Message Arecv(std::vector<T>& buf, int pid, int tag);
 
     template <class T> Message Send(const T* buf, size_t n, int dst_pid, int tag);
@@ -629,7 +629,7 @@ while ( false )
                                                       int root);
 
     void Wait     (MPI_Request& req, MPI_Status& status);
-    void Waitall  (Vector<MPI_Request>& reqs, Vector<MPI_Status>& status);
+    void Waitall  (Vector<MPI_Request>& reqs, Vector<MPI_Status>& status, bool sync = true);
     void Waitany  (Vector<MPI_Request>& reqs, int &index, MPI_Status& status);
     void Waitsome (Vector<MPI_Request>&, int&, Vector<int>&, Vector<MPI_Status>&);
 
@@ -674,13 +674,14 @@ ParallelDescriptor::Asend (const T* buf, size_t n, int dst_pid, int tag)
 namespace ParallelDescriptor {  // Have to use namespace here to work around a gcc bug
 template <>
 Message
-Asend<char> (const char* buf, size_t n, int dst_pid, int tag, MPI_Comm comm);
+Asend<char> (const char* buf, size_t n, int dst_pid, int tag, MPI_Comm comm, bool ST);
 
 template <class T>
 Message
-Asend (const T* buf, size_t n, int dst_pid, int tag, MPI_Comm comm)
+Asend (const T* buf, size_t n, int dst_pid, int tag, MPI_Comm comm, bool ST)
 {
     static_assert(!std::is_same<char,T>::value, "Asend: char version has been specialized");
+    amrex::ignore_unused(ST);
 
     BL_PROFILE_T_S("ParallelDescriptor::Asend(TsiiM)", T);
     BL_COMM_PROFILE(BLProfiler::AsendTsiiM, n * sizeof(T), dst_pid, tag);
@@ -763,13 +764,14 @@ ParallelDescriptor::Arecv (T* buf, size_t n, int src_pid, int tag)
 namespace ParallelDescriptor {  // Have to use namespace here to work around a gcc bug
 template <>
 Message
-Arecv<char> (char* buf, size_t n, int src_pid, int tag, MPI_Comm comm);
+Arecv<char> (char* buf, size_t n, int src_pid, int tag, MPI_Comm comm, bool ST);
 
 template <class T>
 Message
-Arecv (T* buf, size_t n, int src_pid, int tag, MPI_Comm comm)
+Arecv (T* buf, size_t n, int src_pid, int tag, MPI_Comm comm, bool ST)
 {
     static_assert(!std::is_same<char,T>::value, "Arecv: char version has been specialized");
+    amrex::ignore_unused(ST);
 
     BL_PROFILE_T_S("ParallelDescriptor::Arecv(TsiiM)", T);
     BL_COMM_PROFILE(BLProfiler::ArecvTsiiM, n * sizeof(T), src_pid, tag);

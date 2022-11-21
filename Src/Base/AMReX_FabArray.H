@@ -44,6 +44,7 @@
 #include <map>
 #include <utility>
 #include <vector>
+#include <deque>
 #include <algorithm>
 #include <set>
 #include <string>
@@ -935,7 +936,7 @@ public:
 
     template <typename BUF=value_type,
               class F=FAB, typename std::enable_if<IsBaseFab<F>::value,int>::type = 0>
-    void FillBoundary_finish ();
+    void FillBoundary_finish (bool sync = true);
 
     void FillBoundary_test ();
 
@@ -1055,7 +1056,7 @@ public:
     void FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
                       const Periodicity& period, bool cross,
                       bool enforce_periodicity_only = false,
-                      bool override_sync = false);
+                      bool override_sync = false, bool sync = true);
 
     void FB_local_copy_cpu (const FB& TheFB, int scomp, int ncomp);
     void PC_local_cpu (const CPC& thecpc, FabArray<FAB> const& src,
@@ -1069,7 +1070,7 @@ public:
 
 #ifdef AMREX_USE_GPU
 
-    void FB_local_copy_gpu (const FB& TheFB, int scomp, int ncomp);
+    void FB_local_copy_gpu (const FB& TheFB, int scomp, int ncomp, bool sync = true);
     void PC_local_gpu (const CPC& thecpc, FabArray<FAB> const& src,
                        int scomp, int dcomp, int ncomp, CpOp op);
 
@@ -1106,14 +1107,15 @@ public:
     static void pack_send_buffer_gpu (FabArray<FAB> const& src, int scomp, int ncomp,
                                       Vector<char*> const& send_data,
                                       Vector<std::size_t> const& send_size,
-                                      Vector<const CopyComTagsContainer*> const& send_cctc);
+                                      Vector<const CopyComTagsContainer*> const& send_cctc,
+                                      bool sync = true);
 
     template <typename BUF = value_type>
     static void unpack_recv_buffer_gpu (FabArray<FAB>& dst, int dcomp, int ncomp,
                                         Vector<char*> const& recv_data,
                                         Vector<std::size_t> const& recv_size,
                                         Vector<const CopyComTagsContainer*> const& recv_cctc,
-                                        CpOp op, bool is_thread_safe);
+                                        CpOp op, bool is_thread_safe, bool sync = true);
 
 #endif
 
@@ -1231,7 +1233,8 @@ public:
                    Vector<int>&                           recv_from,
                    Vector<MPI_Request>&                   recv_reqs,
                    int                                    ncomp,
-                   int                                    SeqNum) const;
+                   int                                    SeqNum,
+                   bool                                   sync = true) const;
 
     template <typename BUF=value_type>
     AMREX_NODISCARD TheFaArenaPointer PostRcvs (const MapOfCopyComTagContainers&       RcvTags,
@@ -1265,14 +1268,24 @@ public:
                           Vector<std::size_t> const& send_size,
                           Vector<int> const&         send_rank,
                           Vector<MPI_Request>&       send_reqs,
-                          int                        SeqNum);
+                          int                        SeqNum,
+                          bool                       sync = true);
 #endif
 
+#ifdef USE_ST
+    std::deque<std::unique_ptr<FBData<FAB>>> fbd;
+#else
     std::unique_ptr<FBData<FAB>> fbd;
+#endif
     std::unique_ptr<PCData<FAB>> pcd;
 
     // Pointer to temporary fab used in non-blocking amrex::OverrideSync
     std::unique_ptr< FabArray<FAB> > os_temp;
+
+#ifdef USE_ST
+protected:
+    void fbd_reset (std::nullptr_t) { fbd.pop_front(); }
+#endif
 };
 
 

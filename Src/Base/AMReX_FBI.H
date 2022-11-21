@@ -51,7 +51,7 @@ struct CellAtomicAdd
 template <class T0, class T1, class F>
 void
 fab_to_fab (Vector<Array4CopyTag<T0, T1> > const& copy_tags, int scomp, int dcomp, int ncomp,
-            F && f)
+            F && f, bool sync = true)
 {
     detail::ParallelFor_doit(copy_tags,
         [=] AMREX_GPU_DEVICE (
@@ -66,7 +66,7 @@ fab_to_fab (Vector<Array4CopyTag<T0, T1> > const& copy_tags, int scomp, int dcom
                       tag.sfab(i+tag.offset.x,j+tag.offset.y,k+tag.offset.z,n+scomp));
                 }
             }
-        });
+        }, sync);
 }
 
 template <class T0, class T1, class F>
@@ -269,7 +269,7 @@ FabArray<FAB>::FB_local_copy_cpu (const FB& TheFB, int scomp, int ncomp)
 
 template <class FAB>
 void
-FabArray<FAB>::FB_local_copy_gpu (const FB& TheFB, int scomp, int ncomp)
+FabArray<FAB>::FB_local_copy_gpu (const FB& TheFB, int scomp, int ncomp, bool sync)
 {
     auto const& LocTags = *(TheFB.m_LocTags);
     int N_locs = LocTags.size();
@@ -320,7 +320,7 @@ FabArray<FAB>::FB_local_copy_gpu (const FB& TheFB, int scomp, int ncomp)
 
     if (is_thread_safe) {
         detail::fab_to_fab<value_type, value_type>(loc_copy_tags, scomp, scomp,
-            ncomp, detail::CellStore<value_type, value_type>());
+            ncomp, detail::CellStore<value_type, value_type>(), sync);
     } else {
         detail::fab_to_fab_atomic_cpy<value_type, value_type>(
             loc_copy_tags, scomp, scomp, ncomp, masks);
@@ -730,7 +730,8 @@ void
 FabArray<FAB>::pack_send_buffer_gpu (FabArray<FAB> const& src, int scomp, int ncomp,
                                      Vector<char*> const& send_data,
                                      Vector<std::size_t> const& send_size,
-                                     Vector<CopyComTagsContainer const*> const& send_cctc)
+                                     Vector<CopyComTagsContainer const*> const& send_cctc,
+                                     bool sync)
 {
     amrex::ignore_unused(send_size);
 
@@ -773,7 +774,7 @@ FabArray<FAB>::pack_send_buffer_gpu (FabArray<FAB> const& src, int scomp, int nc
     }
 
     detail::fab_to_fab<BUF, value_type>(snd_copy_tags, scomp, 0, ncomp,
-                                        detail::CellStore<BUF, value_type>());
+                                        detail::CellStore<BUF, value_type>(), sync);
 
     // There is Gpu::streamSynchronize in fab_to_fab.
 
@@ -791,7 +792,7 @@ FabArray<FAB>::unpack_recv_buffer_gpu (FabArray<FAB>& dst, int dcomp, int ncomp,
                                        Vector<char*> const& recv_data,
                                        Vector<std::size_t> const& recv_size,
                                        Vector<CopyComTagsContainer const*> const& recv_cctc,
-                                       CpOp op, bool is_thread_safe)
+                                       CpOp op, bool is_thread_safe, bool sync)
 {
     amrex::ignore_unused(recv_size);
 
@@ -868,7 +869,7 @@ FabArray<FAB>::unpack_recv_buffer_gpu (FabArray<FAB>& dst, int dcomp, int ncomp,
     {
         if (is_thread_safe) {
             detail::fab_to_fab<value_type, BUF>(
-                recv_copy_tags, 0, dcomp, ncomp, detail::CellStore<value_type, BUF>());
+                recv_copy_tags, 0, dcomp, ncomp, detail::CellStore<value_type, BUF>(), sync);
         } else {
             detail::fab_to_fab_atomic_cpy<value_type, BUF>(
                 recv_copy_tags, 0, dcomp, ncomp, masks);
@@ -878,7 +879,7 @@ FabArray<FAB>::unpack_recv_buffer_gpu (FabArray<FAB>& dst, int dcomp, int ncomp,
     {
         if (is_thread_safe) {
             detail::fab_to_fab<value_type, BUF>(
-                recv_copy_tags, 0, dcomp, ncomp, detail::CellAdd<value_type, BUF>());
+                recv_copy_tags, 0, dcomp, ncomp, detail::CellAdd<value_type, BUF>(), sync);
         } else {
             detail::fab_to_fab_atomic_add<value_type, BUF>(
                 recv_copy_tags, 0, dcomp, ncomp, masks);

@@ -3,6 +3,7 @@
 #include <AMReX_Utility.H>
 #include <AMReX_BLProfiler.H>
 #include <AMReX_BLFort.H>
+#include <AMReX_GpuDevice.H>
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_Print.H>
 #include <AMReX_TypeTraits.H>
@@ -34,6 +35,7 @@
 #include <stack>
 #include <list>
 #include <chrono>
+#include <functional>
 
 #ifdef BL_USE_MPI
 namespace
@@ -1031,7 +1033,7 @@ Wait (MPI_Request& req, MPI_Status& status)
 }
 
 void
-Waitall (Vector<MPI_Request>& reqs, Vector<MPI_Status>& status)
+Waitall (Vector<MPI_Request>& reqs, Vector<MPI_Status>& status, bool sync)
 {
     BL_ASSERT(status.size() >= reqs.size());
 
@@ -1593,10 +1595,34 @@ alignof_comm_data (std::size_t nbytes)
     }
 }
 
+namespace
+{
+#ifdef USE_ST
+    std::function<int(const void*, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request*)> mpi_send
+        = MPIX_Isend_enqueue;
+    std::function<int(const void*, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request*)> mpi_recv
+        = MPIX_Irecv_enqueue;
+#else
+    std::function<int(const void*, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request*)> mpi_send
+        = MPI_Isend;
+    std::function<int(const void*, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request*)> mpi_recv
+        = MPI_Irecv;
+
+#endif
+}
+
 template <>
 Message
-Asend<char> (const char* buf, size_t n, int pid, int tag, MPI_Comm comm)
+Asend<char> (const char* buf, size_t n, int pid, int tag, MPI_Comm comm, bool sync)
 {
+#ifdef USE_ST
+    if(sync)
+        mpi_send = MPI_Isend;
+#else
+    amrex::ignore_unused(sync);
+#endif
+
+
     BL_PROFILE_T_S("ParallelDescriptor::Asend(TsiiM)", char);
     BL_COMM_PROFILE(BLProfiler::AsendTsiiM, n * sizeof(char), pid, tag);
 
@@ -1604,7 +1630,7 @@ Asend<char> (const char* buf, size_t n, int pid, int tag, MPI_Comm comm)
     Message msg;
     const int comm_data_type = ParallelDescriptor::select_comm_data_type(n);
     if (comm_data_type == 1) {
-        BL_MPI_REQUIRE( MPI_Isend(const_cast<char*>(buf),
+        BL_MPI_REQUIRE( mpi_send(const_cast<char*>(buf),
                                   n,
                                   Mpi_typemap<char>::type(),
                                   pid, tag, comm, &req) );
@@ -1614,7 +1640,7 @@ Asend<char> (const char* buf, size_t n, int pid, int tag, MPI_Comm comm)
             || (n % sizeof(unsigned long long)) != 0) {
             amrex::Abort("Message size is too big as char, and it cannot be sent as unsigned long long.");
         }
-        BL_MPI_REQUIRE( MPI_Isend(const_cast<unsigned long long*>
+        BL_MPI_REQUIRE( mpi_send(const_cast<unsigned long long*>
                                      (reinterpret_cast<unsigned long long const*>(buf)),
                                   n/sizeof(unsigned long long),
                                   Mpi_typemap<unsigned long long>::type(),
@@ -1625,7 +1651,7 @@ Asend<char> (const char* buf, size_t n, int pid, int tag, MPI_Comm comm)
             || (n % sizeof(ParallelDescriptor::lull_t)) != 0) {
             amrex::Abort("Message size is too big as char or unsigned long long, and it cannot be sent as ParallelDescriptor::lull_t");
         }
-        BL_MPI_REQUIRE( MPI_Isend(const_cast<ParallelDescriptor::lull_t*>
+        BL_MPI_REQUIRE( mpi_send(const_cast<ParallelDescriptor::lull_t*>
                                      (reinterpret_cast<ParallelDescriptor::lull_t const*>(buf)),
                                   n/sizeof(ParallelDescriptor::lull_t),
                                   Mpi_typemap<ParallelDescriptor::lull_t>::type(),
@@ -1682,8 +1708,15 @@ Send<char> (const char* buf, size_t n, int pid, int tag, MPI_Comm comm)
 
 template <>
 Message
-Arecv<char> (char* buf, size_t n, int pid, int tag, MPI_Comm comm)
+Arecv<char> (char* buf, size_t n, int pid, int tag, MPI_Comm comm, bool sync)
 {
+#ifdef USE_ST
+    if(sync)
+        mpi_recv = MPI_Irecv;
+#else
+    amrex::ignore_unused(sync);
+#endif
+
     BL_PROFILE_T_S("ParallelDescriptor::Arecv(TsiiM)", char);
     BL_COMM_PROFILE(BLProfiler::ArecvTsiiM, n * sizeof(char), pid, tag);
 
@@ -1691,7 +1724,7 @@ Arecv<char> (char* buf, size_t n, int pid, int tag, MPI_Comm comm)
     Message msg;
     const int comm_data_type = ParallelDescriptor::select_comm_data_type(n);
     if (comm_data_type == 1) {
-        BL_MPI_REQUIRE( MPI_Irecv(buf,
+        BL_MPI_REQUIRE( mpi_recv(buf,
                                   n,
                                   Mpi_typemap<char>::type(),
                                   pid, tag, comm, &req) );
@@ -1701,7 +1734,7 @@ Arecv<char> (char* buf, size_t n, int pid, int tag, MPI_Comm comm)
             || (n % sizeof(unsigned long long)) != 0) {
             amrex::Abort("Message size is too big as char, and it cannot be received as unsigned long long.");
         }
-        BL_MPI_REQUIRE( MPI_Irecv((unsigned long long *)buf,
+        BL_MPI_REQUIRE( mpi_recv((unsigned long long *)buf,
                                   n/sizeof(unsigned long long),
                                   Mpi_typemap<unsigned long long>::type(),
                                   pid, tag, comm, &req) );
@@ -1711,7 +1744,7 @@ Arecv<char> (char* buf, size_t n, int pid, int tag, MPI_Comm comm)
             || (n % sizeof(ParallelDescriptor::lull_t)) != 0) {
             amrex::Abort("Message size is too big as char or unsigned long long, and it cannot be received as ParallelDescriptor::lull_t");
         }
-        BL_MPI_REQUIRE( MPI_Irecv((ParallelDescriptor::lull_t *)buf,
+        BL_MPI_REQUIRE( mpi_recv((ParallelDescriptor::lull_t *)buf,
                                   n/sizeof(ParallelDescriptor::lull_t),
                                   Mpi_typemap<ParallelDescriptor::lull_t>::type(),
                                   pid, tag, comm, &req) );
