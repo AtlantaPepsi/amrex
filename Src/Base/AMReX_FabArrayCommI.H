@@ -8,12 +8,11 @@ void
 FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
                             const Periodicity& period, bool cross,
                             bool enforce_periodicity_only,
-                            bool override_sync)
+                            bool override_sync, bool sync)
 {
     BL_PROFILE_SYNC_START_TIMED("SyncBeforeComms: FB");
     BL_PROFILE("FillBoundary_nowait()");
 
-    AMREX_ASSERT_WITH_MESSAGE(!fbd, "FillBoundary_nowait() called when comm operation already in progress.");
     AMREX_ASSERT(!enforce_periodicity_only || !override_sync);
 
     bool work_to_do;
@@ -46,7 +45,7 @@ FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
             else
 #endif
             {
-                FB_local_copy_gpu(TheFB, scomp, ncomp);
+                FB_local_copy_gpu(TheFB, scomp, ncomp, sync);
             }
         }
         else
@@ -88,7 +87,7 @@ FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
     if (N_rcvs > 0) {
         PostRcvs<BUF>(*TheFB.m_RcvTags, fbd->the_recv_data,
                       fbd->recv_data, fbd->recv_size, fbd->recv_from, fbd->recv_reqs,
-                      ncomp, SeqNum);
+                      ncomp, SeqNum, sync);
         fbd->recv_stat.resize(N_rcvs);
     }
 
@@ -117,7 +116,7 @@ FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
             else
 #endif
             {
-                pack_send_buffer_gpu<BUF>(*this, scomp, ncomp, send_data, send_size, send_cctc);
+                pack_send_buffer_gpu<BUF>(*this, scomp, ncomp, send_data, send_size, send_cctc, sync);
             }
         }
         else
@@ -127,7 +126,7 @@ FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
         }
 
         AMREX_ASSERT(send_reqs.size() == N_snds);
-        PostSnds(send_data, send_size, send_rank, send_reqs, SeqNum);
+        PostSnds(send_data, send_size, send_rank, send_reqs, SeqNum, sync);
     }
 
     FillBoundary_test();
@@ -147,7 +146,7 @@ FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
             else
 #endif
             {
-                FB_local_copy_gpu(TheFB, scomp, ncomp);
+                FB_local_copy_gpu(TheFB, scomp, ncomp, sync);
             }
         }
         else
@@ -165,7 +164,7 @@ FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
 template <class FAB>
 template <typename BUF, class F, typename std::enable_if<IsBaseFab<F>::value,int>::type Z>
 void
-FabArray<FAB>::FillBoundary_finish ()
+FabArray<FAB>::FillBoundary_finish (bool sync)
 {
 #ifdef AMREX_USE_MPI
 
@@ -699,7 +698,8 @@ FabArray<FAB>::PostSnds (Vector<char*> const&       send_data,
                          Vector<std::size_t> const& send_size,
                          Vector<int> const&         send_rank,
                          Vector<MPI_Request>&       send_reqs,
-                         int                        SeqNum)
+                         int                        SeqNum,
+                         bool                       sync)
 {
     MPI_Comm comm = ParallelContext::CommunicatorSub();
 
@@ -739,7 +739,8 @@ FabArray<FAB>::PostRcvs (const MapOfCopyComTagContainers&  RcvTags,
                          Vector<int>&                      recv_from,
                          Vector<MPI_Request>&              recv_reqs,
                          int                               ncomp,
-                         int                               SeqNum) const
+                         int                               SeqNum,
+                         bool                              sync) const
 {
     recv_data.clear();
     recv_size.clear();

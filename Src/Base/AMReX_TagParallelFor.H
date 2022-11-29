@@ -5,6 +5,7 @@
 #include <AMReX_Arena.H>
 #include <AMReX_Array4.H>
 #include <AMReX_Box.H>
+#include <AMReX_GpuAsyncArray.H>
 #include <AMReX_GpuLaunch.H>
 #include <AMReX_Vector.H>
 #include <utility>
@@ -146,8 +147,10 @@ tagparfor_call_f (
 
 template <class TagType, class F>
 void
-ParallelFor_doit (Vector<TagType> const& tags, F && f)
+ParallelFor_doit (Vector<TagType> const& tags, F && f, bool sync = true)
 {
+    amrex::ignore_unused(sync);
+
     const int ntags = tags.size();
     if (ntags == 0) return;
 
@@ -215,9 +218,20 @@ ParallelFor_doit (Vector<TagType> const& tags, F && f)
 #endif
     });
 
-    Gpu::streamSynchronize();
-    The_Pinned_Arena()->free(h_buffer);
-    The_Arena()->free(d_buffer);
+#ifdef AMREX_USE_CUDA
+    if (!sync) {
+        char** p = static_cast<char**>(std::malloc(2*sizeof(char*)));
+        p[0] = d_buffer;
+        p[1] = h_buffer;
+        AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::gpuStream(),
+                                                 amrex_asyncarray_delete, p) );
+    } else
+#endif
+    {
+        Gpu::streamSynchronize();
+        The_Pinned_Arena()->free(h_buffer);
+        The_Arena()->free(d_buffer);
+    }
 }
 
 }
