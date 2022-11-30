@@ -73,7 +73,7 @@ public:
 #ifdef USE_ST
     //TODO: fix harcoding here
     static MPI_Comm streamComm () noexcept { return mpix_comm_pool[1]; }
-    static cudaStream_t commStream () noexcept { return gpu_stream[1]; }
+    static cudaStream_t commStream () noexcept { return gpu_stream_pool[1]; }
 #endif
 
 

@@ -74,31 +74,31 @@ FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
         return;
     }
 
-    fbd = std::make_unique<FBData<FAB>>();
-    fbd->fb    = &TheFB;
-    fbd->scomp = scomp;
-    fbd->ncomp = ncomp;
-    fbd->tag   = SeqNum;
+    auto fbd_ = std::make_unique<FBData<FAB>>();
+    fbd_->fb    = &TheFB;
+    fbd_->scomp = scomp;
+    fbd_->ncomp = ncomp;
+    fbd_->tag   = SeqNum;
 
     //
     // Post rcvs. Allocate one chunk of space to hold'm all.
     //
 
     if (N_rcvs > 0) {
-        PostRcvs<BUF>(*TheFB.m_RcvTags, fbd->the_recv_data,
-                      fbd->recv_data, fbd->recv_size, fbd->recv_from, fbd->recv_reqs,
+        PostRcvs<BUF>(*TheFB.m_RcvTags, fbd_->the_recv_data,
+                      fbd_->recv_data, fbd_->recv_size, fbd_->recv_from, fbd_->recv_reqs,
                       ncomp, SeqNum, sync);
-        fbd->recv_stat.resize(N_rcvs);
+        fbd_->recv_stat.resize(N_rcvs);
     }
 
     //
     // Post send's
     //
-    char*&                          the_send_data = fbd->the_send_data;
-    Vector<char*> &                     send_data = fbd->send_data;
+    char*&                          the_send_data = fbd_->the_send_data;
+    Vector<char*> &                     send_data = fbd_->send_data;
     Vector<std::size_t>                 send_size;
     Vector<int>                         send_rank;
-    Vector<MPI_Request>&                send_reqs = fbd->send_reqs;
+    Vector<MPI_Request>&                send_reqs = fbd_->send_reqs;
     Vector<const CopyComTagsContainer*> send_cctc;
 
     if (N_snds > 0)
@@ -129,8 +129,9 @@ FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
         PostSnds(send_data, send_size, send_rank, send_reqs, SeqNum, sync);
     }
 
+#ifndef USE_ST
     FillBoundary_test();
-
+#endif
     //
     // Do the local work.  Hope for a bit of communication/computation overlap.
     //
@@ -154,9 +155,16 @@ FabArray<FAB>::FBEP_nowait (int scomp, int ncomp, const IntVect& nghost,
         {
             FB_local_copy_cpu(TheFB, scomp, ncomp);
         }
-
+#ifndef USE_ST
         FillBoundary_test();
+#endif
     }
+
+#ifdef USE_ST
+    fbd.push_back(std::move(fbd_));
+#else
+    fbd = std::move(fbd_);
+#endif
 
 #endif /*BL_USE_MPI*/
 }
@@ -171,28 +179,39 @@ FabArray<FAB>::FillBoundary_finish (bool sync)
     BL_PROFILE("FillBoundary_finish()");
     BL_PROFILE_SYNC_STOP();
 
-    if (!fbd) { n_filled = IntVect::TheZeroVector(); return; }
+#ifdef USE_ST
+    if (fbd.empty())
+#else
+    if (!fbd)
+#endif
+    { n_filled = IntVect::TheZeroVector(); return; }
 
-    const FB* TheFB = fbd->fb;
+#ifdef USE_ST
+    FBData<FAB>& fbd_ = *fbd.back();
+#else
+    FBData<FAB>& fbd_ = *fbd;
+#endif
+
+    const FB* TheFB = fbd_.fb;
     const int N_rcvs = TheFB->m_RcvTags->size();
     if (N_rcvs > 0)
     {
         Vector<const CopyComTagsContainer*> recv_cctc(N_rcvs,nullptr);
         for (int k = 0; k < N_rcvs; k++)
         {
-            if (fbd->recv_size[k] > 0)
+            if (fbd_.recv_size[k] > 0)
             {
-                auto const& cctc = TheFB->m_RcvTags->at(fbd->recv_from[k]);
+                auto const& cctc = TheFB->m_RcvTags->at(fbd_.recv_from[k]);
                 recv_cctc[k] = &cctc;
             }
         }
 
-        int actual_n_rcvs = N_rcvs - std::count(fbd->recv_data.begin(), fbd->recv_data.end(), nullptr);
+        int actual_n_rcvs = N_rcvs - std::count(fbd_.recv_data.begin(), fbd_.recv_data.end(), nullptr);
 
         if (actual_n_rcvs > 0) {
-            ParallelDescriptor::Waitall(fbd->recv_reqs, fbd->recv_stat);
+            ParallelDescriptor::Waitall(fbd_.recv_reqs, fbd_.recv_stat, sync);
 #ifdef AMREX_DEBUG
-            if (!CheckRcvStats(fbd->recv_stat, fbd->recv_size, fbd->tag))
+            if (!CheckRcvStats(fbd_.recv_stat, fbd_.recv_size, fbd_.tag))
             {
                 amrex::Abort("FillBoundary_finish failed with wrong message size");
             }
@@ -207,40 +226,58 @@ FabArray<FAB>::FillBoundary_finish (bool sync)
 #if defined(__CUDACC__)
             if (Gpu::inGraphRegion())
             {
-                FB_unpack_recv_buffer_cuda_graph(*TheFB, fbd->scomp, fbd->ncomp,
-                                                 fbd->recv_data, fbd->recv_size,
+                FB_unpack_recv_buffer_cuda_graph(*TheFB, fbd_.scomp, fbd_.ncomp,
+                                                 fbd_.recv_data, fbd_.recv_size,
                                                  recv_cctc, is_thread_safe);
             }
             else
 #endif
             {
-                unpack_recv_buffer_gpu<BUF>(*this, fbd->scomp, fbd->ncomp, fbd->recv_data, fbd->recv_size,
-                                            recv_cctc, FabArrayBase::COPY, is_thread_safe);
+                unpack_recv_buffer_gpu<BUF>(*this, fbd_.scomp, fbd_.ncomp, fbd_.recv_data, fbd_.recv_size,
+                                            recv_cctc, FabArrayBase::COPY, is_thread_safe, sync);
             }
         }
         else
 #endif
         {
-            unpack_recv_buffer_cpu<BUF>(*this, fbd->scomp, fbd->ncomp, fbd->recv_data, fbd->recv_size,
+            unpack_recv_buffer_cpu<BUF>(*this, fbd_.scomp, fbd_.ncomp, fbd_.recv_data, fbd_.recv_size,
                                         recv_cctc, FabArrayBase::COPY, is_thread_safe);
         }
 
-        if (fbd->the_recv_data)
-        {
-            amrex::The_FA_Arena()->free(fbd->the_recv_data);
-            fbd->the_recv_data = nullptr;
+        if (fbd_.the_recv_data)
+        {   if (!sync) {
+                AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::Device::commStream(),
+                                                     amrex_asyncarray_delete, fbd_.the_recv_data) );
+        }
+            else {
+                amrex::The_FA_Arena()->free(fbd_.the_recv_data);
+                fbd_.the_recv_data = nullptr;
+            }
         }
     }
 
     const int N_snds = TheFB->m_SndTags->size();
     if (N_snds > 0) {
-        Vector<MPI_Status> stats(fbd->send_reqs.size());
-        ParallelDescriptor::Waitall(fbd->send_reqs, stats);
-        amrex::The_FA_Arena()->free(fbd->the_send_data);
-        fbd->the_send_data = nullptr;
+        Vector<MPI_Status> stats(fbd_.send_reqs.size());
+        ParallelDescriptor::Waitall(fbd_.send_reqs, stats, sync);
+        if (!sync) {
+            AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::Device::commStream(),
+                                                 amrex_asyncarray_delete, fbd_.the_send_data) );
+        }
+        else {
+            amrex::The_FA_Arena()->free(fbd_.the_send_data);
+            fbd_.the_send_data = nullptr;
+        }
     }
 
+#ifdef USE_ST
+    AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::Device::commStream(),
+                                                 rreset<FAB>, this) );
+    //AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::Device::commStream(),
+    //                                             &(this->fbd_reset), nullptr) );
+#else
     fbd.reset();
+#endif
 
 #endif
 }
@@ -701,7 +738,13 @@ FabArray<FAB>::PostSnds (Vector<char*> const&       send_data,
                          int                        SeqNum,
                          bool                       sync)
 {
-    MPI_Comm comm = ParallelContext::CommunicatorSub();
+    MPI_Comm comm;
+#ifdef USE_ST
+    if (!sync)
+        comm = Gpu::Device::streamComm();
+    else
+#endif
+    comm = ParallelContext::CommunicatorSub();
 
     const int N_snds = send_reqs.size();
     for (int j = 0; j < N_snds; ++j)
@@ -709,7 +752,7 @@ FabArray<FAB>::PostSnds (Vector<char*> const&       send_data,
         if (send_size[j] > 0) {
             const int rank = ParallelContext::global_to_local_rank(send_rank[j]);
             send_reqs[j] = ParallelDescriptor::Asend
-                (send_data[j], send_size[j], rank, SeqNum, comm).req();
+                (send_data[j], send_size[j], rank, SeqNum, comm, sync).req();
         }
     }
 }
@@ -775,7 +818,13 @@ FabArray<FAB>::PostRcvs (const MapOfCopyComTagContainers&  RcvTags,
 
     const int nrecv = recv_from.size();
 
-    MPI_Comm comm = ParallelContext::CommunicatorSub();
+    MPI_Comm comm;
+#ifdef USE_ST
+    if (!sync)
+        comm = Gpu::Device::streamComm();
+    else
+#endif
+    comm = ParallelContext::CommunicatorSub();
 
     if (TotalRcvsVolume == 0)
     {
@@ -792,7 +841,7 @@ FabArray<FAB>::PostRcvs (const MapOfCopyComTagContainers&  RcvTags,
             {
                 const int rank = ParallelContext::global_to_local_rank(recv_from[i]);
                 recv_reqs[i] = ParallelDescriptor::Arecv
-                    (recv_data[i], recv_size[i], rank, SeqNum, comm).req();
+                    (recv_data[i], recv_size[i], rank, SeqNum, comm, sync).req();
             }
         }
     }
@@ -825,7 +874,7 @@ FabArray<FAB>::Redistribute (const FabArray<FAB>& src,
 
 #endif
 }
-
+#ifndef USE_ST
 template <class FAB>
 void
 FabArray<FAB>::FillBoundary_test ()
@@ -837,7 +886,7 @@ FabArray<FAB>::FillBoundary_test ()
     ParallelDescriptor::Test(fbd->recv_reqs, flag, fbd->recv_stat);
 #endif
 }
-
+#endif
 namespace detail {
 template <class TagT>
 void fbv_copy (Vector<TagT> const& tags)

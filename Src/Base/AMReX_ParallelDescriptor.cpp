@@ -1057,7 +1057,7 @@ Waitall (Vector<MPI_Request>& reqs, Vector<MPI_Status>& status, bool sync)
 
     BL_PROFILE_S("ParallelDescriptor::Waitall()");
     BL_COMM_PROFILE_WAITSOME(BLProfiler::Waitall, reqs, reqs.size(), status, true);
-    BL_MPI_REQUIRE( MPI_Waitall(reqs.size(),
+    BL_MPI_REQUIRE( mpi_wait(reqs.size(),
                                 reqs.dataPtr(),
                                 status.dataPtr()) );
     BL_COMM_PROFILE_WAITSOME(BLProfiler::Waitall, reqs, status.size(), status, false);

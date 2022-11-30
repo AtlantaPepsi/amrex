@@ -964,7 +964,7 @@ public:
     void FillBoundary (bool cross = false);
 
     template <typename BUF=value_type>
-    void FillBoundary (const Periodicity& period, bool cross = false);
+    void FillBoundary (const Periodicity& period, bool cross = false, bool sync = true);
 
     template <typename BUF=value_type>
     void FillBoundary (const IntVect& nghost, const Periodicity& period, bool cross = false);
@@ -995,7 +995,7 @@ public:
     void FillBoundary_nowait (int scomp, int ncomp, const Periodicity& period, bool cross = false);
 
     template <typename BUF=value_type>
-    void FillBoundary_nowait (int scomp, int ncomp, const IntVect& nghost, const Periodicity& period, bool cross = false);
+    void FillBoundary_nowait (int scomp, int ncomp, const IntVect& nghost, const Periodicity& period, bool cross = false, bool sync = true);
 
     template <typename BUF=value_type,
               class F=FAB, typename std::enable_if<IsBaseFab<F>::value,int>::type = 0>
@@ -1133,7 +1133,7 @@ public:
 
 #ifdef AMREX_USE_GPU
 
-    void FB_local_copy_gpu (const FB& TheFB, int scomp, int ncomp, bool sync);
+    void FB_local_copy_gpu (const FB& TheFB, int scomp, int ncomp, bool sync = true);
     void PC_local_gpu (const CPC& thecpc, FabArray<FAB> const& src,
                        int scomp, int dcomp, int ncomp, CpOp op);
 
@@ -1363,7 +1363,11 @@ public:
                           bool                       sync = true);
 #endif
 
+#ifdef USE_ST
+    std::deque<std::unique_ptr<FBData<FAB>>> fbd;
+#else
     std::unique_ptr<FBData<FAB>> fbd;
+#endif
     std::unique_ptr<PCData<FAB>> pcd;
 
     // Pointer to temporary fab used in non-blocking amrex::OverrideSync
@@ -1420,8 +1424,16 @@ public:
                          value_type a, const FabArray<FAB>& x, int xcomp,
                          value_type b, const FabArray<FAB>& y, int ycomp,
                          int dstcomp, int numcomp, const IntVect& nghost);
+
+#ifdef USE_ST
+    void fbd_reset () { fbd.pop_front(); }
+#endif
 };
 
+template <class FAB>
+void CUDART_CB rreset (void *userData) {
+    ((FabArray<FAB>*)userData)->fbd_reset();
+}
 
 #include <AMReX_FabArrayCommI.H>
 
@@ -2962,12 +2974,12 @@ FabArray<FAB>::FillBoundary (bool cross)
 template <class FAB>
 template <typename BUF>
 void
-FabArray<FAB>::FillBoundary (const Periodicity& period, bool cross)
+FabArray<FAB>::FillBoundary (const Periodicity& period, bool cross, bool sync)
 {
     BL_PROFILE("FabArray::FillBoundary()");
     if ( n_grow.max() > 0 ) {
-        FillBoundary_nowait<BUF>(0, nComp(), n_grow, period, cross);
-        FillBoundary_finish<BUF>();
+        FillBoundary_nowait<BUF>(0, nComp(), n_grow, period, cross, sync);
+        FillBoundary_finish<BUF>(sync);
     }
 }
 
@@ -3279,9 +3291,9 @@ template <class FAB>
 template <typename BUF>
 void
 FabArray<FAB>::FillBoundary_nowait (int scomp, int ncomp, const IntVect& nghost,
-                                    const Periodicity& period, bool cross)
+                                    const Periodicity& period, bool cross, bool sync)
 {
-    FBEP_nowait<BUF>(scomp, ncomp, nghost, period, cross);
+    FBEP_nowait<BUF>(scomp, ncomp, nghost, period, cross, false, false, sync);
 }
 
 template <class FAB>
