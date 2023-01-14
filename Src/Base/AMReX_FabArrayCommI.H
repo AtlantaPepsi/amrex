@@ -245,9 +245,10 @@ FabArray<FAB>::FillBoundary_finish (bool sync)
         }
 
         if (fbd_.the_recv_data)
-        {   if (!sync) {
+        {   if (!sync) {/*
                 AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::Device::commStream(),
                                                      amrex_asyncarray_delete, fbd_.the_recv_data) );
+*/
         }
             else {
                 amrex::The_FA_Arena()->free(fbd_.the_recv_data);
@@ -261,8 +262,10 @@ FabArray<FAB>::FillBoundary_finish (bool sync)
         Vector<MPI_Status> stats(fbd_.send_reqs.size());
         ParallelDescriptor::Waitall(fbd_.send_reqs, stats, sync);
         if (!sync) {
+/*
             AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::Device::commStream(),
                                                  amrex_asyncarray_delete, fbd_.the_send_data) );
+*/
         }
         else {
             amrex::The_FA_Arena()->free(fbd_.the_send_data);

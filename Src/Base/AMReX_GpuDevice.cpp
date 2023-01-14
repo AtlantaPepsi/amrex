@@ -373,8 +373,8 @@ Device::Finalize ()
     for (int i = 0; i < max_gpu_streams; ++i)
     {
 #ifdef USE_ST
-        //MPI_Comm_free(&mpix_comm_pool[i]);
-        //MPIX_Stream_free(&mpix_stream_pool[i]);
+        MPI_Comm_free(&mpix_comm_pool[i]);
+        MPIX_Stream_free(&mpix_stream_pool[i]);
 #endif
         AMREX_HIP_OR_CUDA( AMREX_HIP_SAFE_CALL( hipStreamDestroy(gpu_stream_pool[i]));,
                           AMREX_CUDA_SAFE_CALL(cudaStreamDestroy(gpu_stream_pool[i])); );

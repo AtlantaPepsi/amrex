@@ -223,8 +223,8 @@ ParallelFor_doit (Vector<TagType> const& tags, F && f, bool sync = true)
         char** p = static_cast<char**>(std::malloc(2*sizeof(char*)));
         p[0] = d_buffer;
         p[1] = h_buffer;
-        AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::gpuStream(),
-                                                 amrex_asyncarray_delete, p) );
+//        AMREX_CUDA_SAFE_CALL( cudaLaunchHostFunc(Gpu::gpuStream(),
+//                                                 amrex_asyncarray_delete, p) );
     } else
 #endif
     {
